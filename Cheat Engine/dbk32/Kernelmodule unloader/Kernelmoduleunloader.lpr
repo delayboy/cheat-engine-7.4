@@ -42,6 +42,34 @@ var
   setup: boolean;
 
 
+function myUload(s:string):BOOL;
+begin
+   hService := OpenService(hSCManager, pchar(s), SERVICE_ALL_ACCESS);
+  if hservice<>0 then
+  begin
+    outputdebugstring(pchar('Opened service '+s));
+    hDevice := CreateFile(pchar('\\.\'+s),
+                  GENERIC_READ or GENERIC_WRITE,
+                  FILE_SHARE_READ or FILE_SHARE_WRITE,
+                  nil,
+                  OPEN_EXISTING,
+                  FILE_FLAG_OVERLAPPED,
+                  0);
+
+    if hdevice<>INVALID_HANDLE_VALUE then
+    begin
+      FileClose(hdevice); { *Converted from CloseHandle*  }
+    end else ok:=false;
+
+    ControlService(hService, SERVICE_CONTROL_STOP, serviceStatus);
+    ok:=DeleteService(hService);
+    if ok then result:=true;
+
+    CloseServiceHandle(hservice);
+  end
+
+end;
+
 function noIsWow64(processhandle: THandle; var isWow: BOOL): BOOL; stdcall;
 begin
   if @isWow<>nil then
@@ -163,6 +191,8 @@ begin
     hSCManager := OpenSCManager(nil, nil, GENERIC_READ or GENERIC_WRITE);
     if hscmanager<>0 then
     begin
+      if myUload('shv') then deletedService:=true;
+      if myUload('MyDriver') then deletedService:=true;
       outputdebugstring('SCManager opened');
       hservice:=OpenService(hSCManager, 'DBKDRVR', SERVICE_ALL_ACCESS);
       if hservice<>0 then
@@ -346,7 +376,7 @@ begin
 
 
       try
-        s:='ULTIMAP2';
+        s:='MYVTUL';
         getmem(apppath,250);
         GetModuleFileName(0,apppath,250);
 
@@ -406,7 +436,7 @@ begin
       end;
 
       try
-        s:='CEDRIVER73';
+        s:='myVT64';
         getmem(apppath,250);
         GetModuleFileName(0,apppath,250);
 
@@ -462,7 +492,9 @@ begin
         if not setup then
         begin
          // outputdebugstring('showing message that the driver isn''t in the registry');
-          messageboxA(0,'Failed to find the driver in the registry','driver error',mb_ok);
+         if deletedService then messagebox(0,'MyDriver is successfully unloaded.','shv.sys MyDriver.sys unloaded',MB_ICONINFORMATION or MB_OK)
+         else  messageboxA(0,'Failed to find Any driver in the registry','driver error',mb_ok);
+
          // outputdebugstring('AFTER the messagebox');
         end
         else outputdebugstring('setup=true');
@@ -484,7 +516,7 @@ begin
   if not setup then
   begin
     if deletedService then
-      messagebox(0,'The driver is successfully unloaded.','dbk32.sys unloaded',MB_ICONINFORMATION or MB_OK)
+      messagebox(0,'The CE driver is successfully unloaded.','myVT64.sys unloaded',MB_ICONINFORMATION or MB_OK)
     else
       messagebox(0,'The driver failed to unload or is already unloaded. If you think it''s still loaded then reboot and run the unloader again.','DBK32.sys unloader',MB_ICONERROR or MB_OK)
   end;

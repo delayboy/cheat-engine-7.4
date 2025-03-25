@@ -13,19 +13,41 @@
       <UniqueIdentifier>{67DA6AB6-F800-4c08-8B7A-83BB121AAD01}</UniqueIdentifier>
       <Extensions>rc;ico;cur;bmp;dlg;rc2;rct;bin;rgs;gif;jpg;jpeg;jpe;resx</Extensions>
     </Filter>
+    <Filter Include="Header Files\Util">
+      <UniqueIdentifier>{bf4aa06f-9533-46f0-9a30-e0be5d89d6d5}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="bla.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
     <ClCompile Include="example-c.c">
       <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="Util\FileHelper.cpp">
+      <Filter>Header Files\Util</Filter>
+    </ClCompile>
+    <ClCompile Include="Util\MyCEHelper.cpp">
+      <Filter>Header Files\Util</Filter>
+    </ClCompile>
+    <ClCompile Include="Util\StringHelper.cpp">
+      <Filter>Header Files\Util</Filter>
+    </ClCompile>
+    <ClCompile Include="Util\ProcessController.cpp">
+      <Filter>Header Files\Util</Filter>
+    </ClCompile>
+    <ClCompile Include="SysLauncher.cpp">
+      <Filter>Header Files\Util</Filter>
+    </ClCompile>
+    <ClCompile Include="Util\MyTcpHelper.cpp">
+      <Filter>Header Files\Util</Filter>
+    </ClCompile>
+    <ClCompile Include="Util\MyCeMiniUi.c">
+      <Filter>Header Files\Util</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <None Include="example-c.def">
       <Filter>Source Files</Filter>
     </None>
+    <None Include="html1.htm" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="bla.h">
@@ -46,5 +68,37 @@
     <ClInclude Include="..\luaconf.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="Util\FileHelper.h">
+      <Filter>Header Files\Util</Filter>
+    </ClInclude>
+    <ClInclude Include="Util\MyCEHelper.h">
+      <Filter>Header Files\Util</Filter>
+    </ClInclude>
+    <ClInclude Include="Util\StringHelper.h">
+      <Filter>Header Files\Util</Filter>
+    </ClInclude>
+    <ClInclude Include="Util\ProcessController.h">
+      <Filter>Header Files\Util</Filter>
+    </ClInclude>
+    <ClInclude Include="SysLauncher.h">
+      <Filter>Header Files\Util</Filter>
+    </ClInclude>
+    <ClInclude Include="resource.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="Util\MyTcpHelper.h">
+      <Filter>Header Files\Util</Filter>
+    </ClInclude>
+    <ClInclude Include="Util\MyCeMiniUi.h">
+      <Filter>Header Files\Util</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <ResourceCompile Include="example-c.rc">
+      <Filter>Resource Files</Filter>
+    </ResourceCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <Text Include="..\..\..\..\..\..\..\..\..\Program Files (Portable)\Hack_Box\Decompile\Cheat Engine 7.4\MyManyLuaScript.txt" />
   </ItemGroup>
 </Project>

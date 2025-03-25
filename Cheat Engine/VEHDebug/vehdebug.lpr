@@ -11,9 +11,9 @@ exports ConfigName;
 exports fm;
 exports InitializeVEH;
 exports UnloadVEH;
-
+exports poc;
 
 begin
-  //OutputDebugString('vehdebug loaded. Waiting for init call');
+  //OutputDebugString('vehdebug loaded. Waiting for init call'); 这里就是dllmain入口
 end.
 

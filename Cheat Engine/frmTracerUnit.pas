@@ -1550,6 +1550,7 @@ begin
   end;
 end;
 
+
 procedure TfrmTracer.miLoadClick(Sender: TObject);
 var
   f: tfilestream;
@@ -1557,6 +1558,7 @@ var
   version: integer;
   i: integer;
   m: TMemoryStream;
+  mytemptemp: TTraceDebugInfo;
 begin
   if opendialog1.execute then
   begin
@@ -1583,7 +1585,16 @@ begin
         raise exception.create('This trace was made with the '+{$ifdef cpu64}'32'{$else}'64'{$endif}+'-bit version of '+strCheatEngine+'. You need to use that version to see the register values and stacktrace');
 
       for i:=0 to lvTracer.Items.Count-1 do
-        lvTracer.Items[i].Data:=TTraceDebugInfo.createFromStream(f);
+      begin
+        mytemptemp := TTraceDebugInfo.createFromStream(f);
+        lvTracer.Items[i].Data:=mytemptemp;
+      end;
+
+      //在这里读取了trace文件
+      //luaclass_newClass(GetLuaState(), lvTracer);
+      mytemptemp:= TTraceDebugInfo(lvTracer.Items[1].Data);
+      lua_pushlightuserdata(GetLuaState(),@mytemptemp.c);
+      lua_setglobal(GetLuaState(),'CETraceView');
 
       miOpenTraceForCompare.Enabled:=true;
       miOpenTraceForCompare.Visible:=true;

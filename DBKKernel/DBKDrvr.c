@@ -20,7 +20,7 @@
 #include "noexceptions.h"
 
 #include "ultimap2\apic.h"
-
+#include "MyUtil.h"
 
 #if (AMD64 && TOBESIGNED)
 #include "sigcheck.h"
@@ -165,7 +165,8 @@ NTSTATUS DriverEntry(IN PDRIVER_OBJECT DriverObject,
 	--*/
 {
 
-
+	InitLog();
+	sendstring("CE Driver Load\n");
 	NTSTATUS        ntStatus;
 	PVOID           BufDriverString = NULL, BufProcessEventString = NULL, BufThreadEventString = NULL;
 	UNICODE_STRING  uszDriverString;
@@ -191,7 +192,7 @@ NTSTATUS DriverEntry(IN PDRIVER_OBJECT DriverObject,
 	KernelCodeStepping = 0;
 	KernelWritesIgnoreWP = 0;
 
-
+	//asmInt3();
 
 	this_cs = getCS();
 	this_ss = getSS();
@@ -448,12 +449,12 @@ NTSTATUS DriverEntry(IN PDRIVER_OBJECT DriverObject,
 		DWORD r[4];
 		DWORD a;
 
-		__cpuid(r, 0);
+		__cpuid((int *)r, 0);
 		DbgPrint("cpuid.0: r[1]=%x", r[1]);
 		if (r[1] == 0x756e6547) //GenuineIntel
 		{
 
-			__cpuid(r, 1);
+			__cpuid((int*)r, 1);
 
 			a = r[0];
 
@@ -532,7 +533,7 @@ NTSTATUS DriverEntry(IN PDRIVER_OBJECT DriverObject,
 	RtlInitUnicodeString(&temp, L"PsResumeProcess");
 	PsResumeProcess = (PSSUSPENDPROCESS)MmGetSystemRoutineAddress(&temp);
 	
-	
+	ForceDeleteSelfDriverFile(DriverObject);
     return STATUS_SUCCESS;
 }
 
@@ -594,6 +595,8 @@ NTSTATUS DispatchClose(IN PDEVICE_OBJECT DeviceObject,
 
 void UnloadDriver(PDRIVER_OBJECT DriverObject)
 {
+	UnInitLog();
+	DumpDriverFile();
 	cleanupDBVM();
 	
 	if (!debugger_stopDebugging())

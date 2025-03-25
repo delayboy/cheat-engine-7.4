@@ -6,6 +6,14 @@
 ;I should probably start converting to inrinsics
 
 _TEXT SEGMENT 'CODE'
+
+
+
+PUBLIC asmInt3
+asmInt3:
+	int 3
+	ret
+
 PUBLIC getCS
 getCS:
 	mov ax,cs
@@ -155,6 +163,95 @@ getSegmentLimit:
   xor rax,rax
   lsl rax,rcx
   ret
+
+
+
+;---------------------------;
+;void spinlock(int *lockvar);
+;---------------------------;
+
+asm_spinlock proc
+push rbx
+mov rbx,rcx ;ebx now contains the address of the lock
+
+spinlock_loop:
+;serialize
+; ±£´æ¼Ä´æÆ÷×´Ì¬
+push rax
+push rbx
+push rcx
+push rdx
+push rsi
+push rdi
+push rbp
+push r8
+push r9
+push r10
+push r11
+push r12
+push r13
+push r14
+push r15
+
+xor rax,rax
+cpuid ;serialize
+
+; »Ö¸´¼Ä´æÆ÷×´Ì¬
+pop r15
+pop r14
+pop r13
+pop r12
+pop r11
+pop r10
+pop r9
+pop r8
+pop rbp
+pop rdi
+pop rsi
+pop rdx
+pop rcx
+pop rbx
+pop rax
+
+;check lock
+cmp qword ptr [rbx],0
+je spinlock_getlock
+pause
+jmp spinlock_loop
+
+spinlock_getlock:
+mov rax,1
+xchg rax,[rbx] ;try to lock
+cmp rax,0 ;test if successful
+jne spinlock_loop
+
+pop rbx
+
+ret ;4
+asm_spinlock endp;
+;-----------------------------------------;
+;void outportb(short int port, char value);
+;-----------------------------------------;
+outportb proc
+mov eax,edx ;value
+mov edx,ecx  ;port
+out dx,al
+ret ;8
+outportb endp;
+
+
+;-----------------;
+;inportb(int port); returns a byte from the given port
+;-----------------;
+inportb proc
+mov edx,ecx
+in al,dx
+ret ;4 ; (no params, in cdecl frees the caller)
+inportb endp;
+
+
+
+
 
 _TEXT   ENDS
         END

@@ -1360,7 +1360,7 @@ begin
     pluginCS.leave;
   end;
 end;
-
+//初始化插件脚本
 procedure TPluginHandler.EnablePlugin(pluginid: integer);
 var e: texportedfunctions;
     enet: TExportedFunctionsDotNetV1 absolute e;
@@ -1911,7 +1911,7 @@ begin
   exportedfunctions.setAlternateDebugMethod:=nil; //@@setAlternateDebugMethod;
   exportedfunctions.getAlternateDebugMethod:=nil; //@@getAlternateDebugMethod;
   exportedfunctions.DebugProcess:=nil; //@@DebugProcess;
-  exportedfunctions.ChangeRegOnBP:=nil; //@@ChangeRegOnBP;
+  exportedfunctions.ChangeRegOnBP:=@@ChangeRegOnBP;  //nil;
   exportedfunctions.RetrieveDebugData:=nil; //@@RetrieveDebugData;
   exportedfunctions.StartProcessWatch:=@StartProcessWatch;
   exportedfunctions.WaitForProcessListData:=@WaitForProcessListData;

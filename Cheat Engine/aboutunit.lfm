@@ -7,7 +7,7 @@ object About: TAbout
   AutoSize = True
   BorderIcons = [biSystemMenu]
   BorderStyle = bsDialog
-  Caption = 'About Cheat Engine'
+  Caption = 'About VT Engine'
   ClientHeight = 310
   ClientWidth = 488
   OnClose = FormClose
@@ -22,7 +22,7 @@ object About: TAbout
     Width = 488
     Align = alClient
     AutoSize = True
-    Caption = 'Cheat Engine'
+    Caption = 'VT Engine'
     ClientHeight = 290
     ClientWidth = 484
     TabOrder = 0

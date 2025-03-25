@@ -10,13 +10,16 @@ uses
 
 var
   ConfigName: array [0..255] of byte;
-  fm: thandle;
+  fm: thandle = 0;
   VEHSharedMem: PVEHDebugSharedMem;
+  isThreadStarted: Boolean = False; // 标志变量，用于确保线程只启动一次
+  isVehStarted: Boolean = False; // 标志变量，用于确保线程只启动一次
+  MyThread: THandle = 0; // 保存线程句柄
 
 
 procedure InitializeVEH;
 procedure UnloadVEH;
-
+function poc(code: Integer; wParam: WPARAM; lParam: LPARAM): LRESULT; stdcall;
 var AddVectoredExceptionHandler: function (FirstHandler: Cardinal; VectoredHandler: PVECTORED_EXCEPTION_HANDLER): pointer; stdcall;
     RemoveVectoredExceptionHandler: function(VectoredHandlerHandle: PVOID): ULONG; stdcall;
     CreateToolhelp32Snapshot: function(dwFlags, th32ProcessID: DWORD): HANDLE; stdcall;
@@ -29,7 +32,39 @@ var oldExceptionHandler: pointer=nil;
 implementation
 
 uses DebugHandler,threadpoll;
+// 线程函数
+function ThreadProc(Parameter: Pointer): DWORD; stdcall;
+begin
+  // 弹出信息框，提示用户循环已经开始
+  MessageBox(0, 'START LOOP', 'INFO', MB_OK or MB_ICONINFORMATION);
+  while fm=0 do
+  begin
+    Sleep(10); // 每0.1秒检测一次
+  end;
+  Sleep(10); // 每0.1秒检测一次
+  if not isVehStarted then
+  begin
+     MessageBox(0, 'OVER LOOP', 'INFO', MB_OK or MB_ICONINFORMATION);
+     InitializeVEH; // 如果 fm 不为 0，则退出线程
+     MessageBox(0, 'VEH OVER', 'INFO', MB_OK or MB_ICONINFORMATION);
+  end;
 
+  Result := 0;
+end;
+function poc(code: Integer; wParam: WPARAM; lParam: LPARAM): LRESULT; stdcall;
+begin
+  if (code = HC_ACTION) and (lParam > 0) then
+  begin
+    if (wParam = VK_F10) and (not isThreadStarted) then
+    begin
+      // 启动线程，并设置标志为 true，确保线程只启动一次
+      isThreadStarted := True;
+      MyThread := CreateThread(nil, 0, @ThreadProc, nil, 0, PDWORD(nil)^);
+    end;
+  end;
+
+  Result := CallNextHookEx(NULL, code, wParam, lParam); // Modify based on your actual return condition
+end;
 
 procedure EmulateInitializeEvents;
 var ep: TEXCEPTIONPOINTERS;
@@ -106,6 +141,7 @@ procedure InitializeVEH;
 var k: THandle;
     m: pchar;
 begin
+  isVehStarted:= True;
   k:=LoadLibrary('kernel32.dll');
   AddVectoredExceptionHandler:=GetProcAddress(k,'AddVectoredExceptionHandler');
   RemoveVectoredExceptionHandler:=GetProcAddress(k,'RemoveVectoredExceptionHandler');

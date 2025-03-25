@@ -70,8 +70,6 @@ begin
     s:=Lua_ToString(L, 1)
   else
     s:='';
-
-
   luaclass_newClass(L, treenodes.add(nil, s));
   result:=1;
 end;

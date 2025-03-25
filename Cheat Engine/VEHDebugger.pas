@@ -560,7 +560,7 @@ begin
     HasHandledDebugEvent:=CreateEvent(nil, false, false, nil);
 
     debuggerAttachStatus:='Duplicating handles';
-
+    //复制共享内存中存储的句柄
     if not DuplicateHandle(GetCurrentProcess, HasDebugEvent, processhandle, @VEHDebugView^.HasDebugEvent, 0, false, DUPLICATE_SAME_ACCESS) then
       raise exception.Create(
         rsFailureDuplicatingTheEventHandlesToTheOtherProcess);

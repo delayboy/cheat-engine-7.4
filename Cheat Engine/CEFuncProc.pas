@@ -429,7 +429,6 @@ end;
 
 
 
-
 procedure errorbeep;
 begin
   beep;
@@ -1076,7 +1075,7 @@ begin
           getprocaddressptr:=pointer(symhandler.getAddressFromName('Kernel32!GetProcAddress',true));
         except
   {$ifdef cpu64}
-          if not processhandler.is64Bit then
+          if not processhandler.is64Bit then    //因为CE是64位的，所以无法通过CE的DLL地址推理出32位程序的地址
             raise exception.create(rsCEFPDllInjectionFailedSymbolLookupError);
   {$endif}
           GetProcAddressPtr:=GetProcAddress(h,'GetProcAddress');

@@ -1551,7 +1551,7 @@ void UnregisterUltimapPMI()
 			return;
 
 
-		r = HalSetSystemInformation(HalProfileSourceInterruptHandler, sizeof(PVOID*), 0);
+		//r = HalSetSystemInformation(HalProfileSourceInterruptHandler, sizeof(PVOID*), 0);
 		DbgPrint("3: HalSetSystemInformation to disable returned %x\n", r);
 		
 	}

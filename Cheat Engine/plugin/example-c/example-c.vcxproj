@@ -22,7 +22,7 @@
     <ProjectGuid>{3A688B63-7CE8-4993-BEC5-E7FE48B73F03}</ProjectGuid>
     <RootNamespace>example-c</RootNamespace>
     <Keyword>Win32Proj</Keyword>
-    <WindowsTargetPlatformVersion>8.1</WindowsTargetPlatformVersion>
+    <WindowsTargetPlatformVersion>10.0.22000.0</WindowsTargetPlatformVersion>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'" Label="Configuration">
@@ -32,17 +32,17 @@
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'" Label="Configuration">
     <ConfigurationType>DynamicLibrary</ConfigurationType>
-    <PlatformToolset>v140_xp</PlatformToolset>
+    <PlatformToolset>v142</PlatformToolset>
     <CharacterSet>MultiByte</CharacterSet>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'" Label="Configuration">
     <ConfigurationType>DynamicLibrary</ConfigurationType>
-    <PlatformToolset>v141_xp</PlatformToolset>
+    <PlatformToolset>v142</PlatformToolset>
     <CharacterSet>MultiByte</CharacterSet>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" Label="Configuration">
     <ConfigurationType>DynamicLibrary</ConfigurationType>
-    <PlatformToolset>v140_xp</PlatformToolset>
+    <PlatformToolset>v142</PlatformToolset>
     <CharacterSet>MultiByte</CharacterSet>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
@@ -81,9 +81,9 @@
     <LibraryPath>$(MSBuildProjectDirectory)\..\;$(LibraryPath)</LibraryPath>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
-    <OutDir>$(Platform)\$(Configuration)\</OutDir>
+    <OutDir>$(ProjectDir)..\..\bin</OutDir>
     <IntDir>$(Platform)\$(Configuration)\</IntDir>
-    <LinkIncremental>true</LinkIncremental>
+    <LinkIncremental>false</LinkIncremental>
     <LibraryPath>$(MSBuildProjectDirectory)\..\;$(LibraryPath)</LibraryPath>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
@@ -104,8 +104,7 @@
       <WarningLevel>Level3</WarningLevel>
       <DebugInformationFormat>EditAndContinue</DebugInformationFormat>
       <CallingConvention>Cdecl</CallingConvention>
-      <CompileAs>
-      </CompileAs>
+      <CompileAs>CompileAsCpp</CompileAs>
     </ClCompile>
     <Link>
       <AdditionalOptions>/def:./example-c.def %(AdditionalOptions)</AdditionalOptions>
@@ -118,6 +117,7 @@
       <ImportLibrary>$(OutDir)example-c.lib</ImportLibrary>
       <TargetMachine>MachineX86</TargetMachine>
       <AdditionalDependencies>lua53-32.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalLibraryDirectories>D:\Computer\Program\Program_maker\C++\CheatEngineSourceCode\cheat-engine-7.4\Cheat Engine\plugin;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
@@ -154,27 +154,31 @@
       <Optimization>Disabled</Optimization>
       <AdditionalIncludeDirectories>..\;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <PreprocessorDefinitions>WIN32;_DEBUG;_WINDOWS;_USRDLL;EXAMPLEC_EXPORTS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
-      <MinimalRebuild>true</MinimalRebuild>
+      <MinimalRebuild>false</MinimalRebuild>
       <BasicRuntimeChecks>EnableFastChecks</BasicRuntimeChecks>
       <RuntimeLibrary>MultiThreadedDebug</RuntimeLibrary>
       <PrecompiledHeader />
       <WarningLevel>Level3</WarningLevel>
       <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
       <CallingConvention>Cdecl</CallingConvention>
-      <CompileAs>
-      </CompileAs>
+      <CompileAs>CompileAsCpp</CompileAs>
+      <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
+      <StructMemberAlignment>Default</StructMemberAlignment>
     </ClCompile>
     <Link>
       <AdditionalOptions>/def:./example-c.def %(AdditionalOptions)</AdditionalOptions>
       <OutputFile>$(OutDir)example-c.dll</OutputFile>
-      <GenerateDebugInformation>true</GenerateDebugInformation>
-      <ProgramDatabaseFile>$(OutDir)example-c.pdb</ProgramDatabaseFile>
+      <GenerateDebugInformation>DebugFull</GenerateDebugInformation>
+      <ProgramDatabaseFile>$(OutDir)$(TargetName).pdb</ProgramDatabaseFile>
       <SubSystem>Windows</SubSystem>
       <RandomizedBaseAddress>false</RandomizedBaseAddress>
       <DataExecutionPrevention />
       <ImportLibrary>$(OutDir)example-c.lib</ImportLibrary>
       <TargetMachine>MachineX64</TargetMachine>
       <AdditionalDependencies>lua53-64.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalLibraryDirectories>D:\Computer\Program\Program_maker\C++\CheatEngineSourceCode\cheat-engine-7.4\Cheat Engine\plugin;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <OptimizeReferences>true</OptimizeReferences>
+      <EnableCOMDATFolding>true</EnableCOMDATFolding>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
@@ -204,14 +208,24 @@
       <ImportLibrary>$(OutDir)example-c.lib</ImportLibrary>
       <TargetMachine>MachineX64</TargetMachine>
       <AdditionalDependencies>lua53-64.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalLibraryDirectories>D:\Computer\Program\Program_maker\C++\CheatEngineSourceCode\cheat-engine-7.4\Cheat Engine\plugin;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClCompile Include="bla.cpp" />
     <ClCompile Include="example-c.c" />
+    <ClCompile Include="SysLauncher.cpp" />
+    <ClCompile Include="Util\FileHelper.cpp" />
+    <ClCompile Include="Util\MyCEHelper.cpp" />
+    <ClCompile Include="Util\MyCeMiniUi.c" />
+    <ClCompile Include="Util\MyTcpHelper.cpp" />
+    <ClCompile Include="Util\ProcessController.cpp" />
+    <ClCompile Include="Util\StringHelper.cpp" />
   </ItemGroup>
   <ItemGroup>
     <None Include="example-c.def" />
+    <None Include="html1.htm">
+      <DeploymentContent>true</DeploymentContent>
+    </None>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\cepluginsdk.h" />
@@ -220,6 +234,20 @@
     <ClInclude Include="..\luaconf.h" />
     <ClInclude Include="..\lualib.h" />
     <ClInclude Include="bla.h" />
+    <ClInclude Include="resource.h" />
+    <ClInclude Include="SysLauncher.h" />
+    <ClInclude Include="Util\FileHelper.h" />
+    <ClInclude Include="Util\MyCEHelper.h" />
+    <ClInclude Include="Util\MyCeMiniUi.h" />
+    <ClInclude Include="Util\MyTcpHelper.h" />
+    <ClInclude Include="Util\ProcessController.h" />
+    <ClInclude Include="Util\StringHelper.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ResourceCompile Include="example-c.rc" />
+  </ItemGroup>
+  <ItemGroup>
+    <Text Include="..\..\..\..\..\..\..\..\..\Program Files (Portable)\Hack_Box\Decompile\Cheat Engine 7.4\MyManyLuaScript.txt" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

@@ -212,17 +212,21 @@ end;
 
 function DBKDebug_GetDebuggerState(state: PDebuggerstate): boolean; stdcall;
 var
+  input: TDebuggerstate;
   Output: TDebuggerstate;
   cc: dword;
-begin
-  FillMemory(state,sizeof(TDebuggerState),1);
+begin //我修改了GET和SET的IO调用方式，让两者同时兼容输入输出，之前是其中一个只兼容输入另一个只兼容输出
+  //FillMemory(state,sizeof(TDebuggerState),1);
   
   OutputDebugString('DBKDebug_GetDebuggerState');
   result:=false;
   if (hdevice<>INVALID_HANDLE_VALUE) then
   begin
     cc:=IOCTL_CE_GETDEBUGGERSTATE;
-    result:=deviceiocontrol(hdevice,cc,nil,0,@output,sizeof(output),cc,nil);
+    input:=state^;
+    outputdebugstring(PChar('benson state = '+ inttohex(state^.eip,8)));
+    outputdebugstring(PChar('benson input = '+ inttohex(input.eip,8)));
+    result:=deviceiocontrol(hdevice,cc,@input,sizeof(Input),@output,sizeof(output),cc,nil);
     if result then
     begin
       OutputDebugString('result = true');
@@ -236,15 +240,22 @@ end;
 function DBKDebug_SetDebuggerState(state: PDebuggerstate): boolean; stdcall;
 var
   input: TDebuggerstate;
+  Output: TDebuggerstate;
   cc: dword;
 begin
+  //FillMemory(state,sizeof(TDebuggerState),1);
   OutputDebugString('DBKDebug_SetDebuggerState');
   result:=false;
   if (hdevice<>INVALID_HANDLE_VALUE) then
   begin
     cc:=IOCTL_CE_SETDEBUGGERSTATE;
     input:=state^;
-    result:=deviceiocontrol(hdevice,cc,@input,sizeof(Input),nil,0,cc,nil);
+    result:=deviceiocontrol(hdevice,cc,@input,sizeof(Input),@output,sizeof(output),cc,nil);
+    if result then
+    begin
+      OutputDebugString('result = true');
+      state^:=output;
+    end;
   end;
 end;
 

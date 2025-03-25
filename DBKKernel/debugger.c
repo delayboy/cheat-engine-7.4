@@ -10,18 +10,20 @@ todo: this whole thing can be moved to a few simple lines in dbvm...
 
 #include "DBKFunc.h"
 #include "interruptHook.h"
-
+#include "MyUtil.h"
 #include "debugger.h"
 #include "vmxhelper.h"
-
+#include "memscan.h"
+#include "threads.h"
 #ifdef AMD64 
 extern void interrupt1_asmentry( void ); //declared in debuggera.asm
 #else
 void interrupt1_asmentry( void );
 #endif
 
-
-
+My_CriticalSection debugRoutineCS = { .name = "debugRoutineCS", .debuglevel = 1 };
+My_CriticalSection vt_debug = { .name = "VT_DEBUG", .debuglevel = 1 };
+My_CriticalSection guset_use_event = { .name = "GUSET_USE_EVENT", .debuglevel = 1 };
 volatile struct
 {
 	BOOL		isDebugging;		//TRUE if a process is currently being debugged
@@ -40,8 +42,8 @@ volatile struct
 	//while debugging:
 	UINT_PTR *LastStackPointer;
 	UINT_PTR *LastRealDebugRegisters;
-	HANDLE LastThreadID;
-	BOOL CausedByDBVM;
+
+
 	BOOL handledlastevent;
 	
 	//BOOL storeLBR;
@@ -68,15 +70,17 @@ volatile struct
 } DebuggerState;
 
 
+
 KEVENT debugger_event_WaitForContinue; //event for kernelmode. Waits till it's set by usermode (usermode function: DBK_Continue_Debug_Event sets it)
 KEVENT debugger_event_CanBreak; //event for kernelmode. Waits till a break has been handled so a new one can enter
 KEVENT debugger_event_WaitForDebugEvent; //event for usermode. Waits till it's set by a debugged event
-
+KSPIN_LOCK lock;
 DebugReg7 debugger_dr7_getValue(void);
 void debugger_dr7_setValue(DebugReg7 value);
 DebugReg6 debugger_dr6_getValue(void);
-
+ULONG_PTR intJmpJmprip;
 JUMPBACK Int1JumpBackLocation;
+
 
 
 
@@ -89,7 +93,252 @@ typedef struct _SavedStack
 criticalSection StacksCS;
 int StackCount;
 PSavedStack *Stacks;
+VT_DEBUG_EVENT_LIST debug_event_list = { 0 };
+VT_DEBUG_EVENT now_g_event = { 0 };
+int VtDebugEventElementHasElement() {
+	return debug_event_list.size > 0;
+}
+int isValidVtDebugEvent(PVT_DEBUG_EVENT debug_event) {
+	int valid = 1;
+	if (debug_event->GuestRip == 0)valid = 0;
+	if (debug_event->isHandled)valid = 0;
+	UINT_PTR originaldr6 = debug_event->fakeDr[6];
+	if (originaldr6 == 0x0 || originaldr6 == 0x0ff0) valid = 0;//dr6寄存器没值也是个无效事件
 
+	return valid;
+}
+void innerAppendVtDebugEvent(PVT_DEBUG_EVENT debug_event, PVT_DEBUG_EVENT_LIST event_list) {
+	event_list->current_pointer = (event_list->current_pointer + 1) % VT_DEBUG_EVENT_LIST_MAX_LEN;
+	PVT_DEBUG_EVENT d_event = &event_list->vt_debug_events[event_list->current_pointer];
+	for (int i = 0; i < 8; i++) {
+		d_event->fakeDr[i] = debug_event->fakeDr[i];
+	}
+	
+	d_event->GuestRip = debug_event->GuestRip;
+	d_event->isHandled = debug_event->isHandled;
+	d_event->dwThreadId = debug_event->dwThreadId;
+	d_event->causeByDbvm = debug_event->causeByDbvm;
+	event_list->size += 1;
+	if (event_list->size > VT_DEBUG_EVENT_LIST_MAX_LEN) {
+		event_list->size = VT_DEBUG_EVENT_LIST_MAX_LEN;
+	}
+}
+void appendVtDebugEventElement(PVT_DEBUG_EVENT debug_event) {
+	int cpu_id = getAPICID();
+	inner_csEnter(&vt_debug, cpu_id);
+	innerAppendVtDebugEvent(debug_event, &debug_event_list);
+	inner_csLeave(&vt_debug, cpu_id);
+
+}
+void printDebugEvent(VT_DEBUG_EVENT_LIST debug_list) {
+
+	if (debug_list.size < 1) {
+		return;
+	}
+	char result[512] = { 0 };
+	char temp[50] = { 0 };
+	sprintf(temp, "event number:%lld\n", debug_list.size);
+	sendstring(temp);
+	if (1) {
+		strcat(result, temp);
+		int start = ((debug_event_list.current_pointer + 1 + VT_DEBUG_EVENT_LIST_MAX_LEN) - (int)debug_event_list.size) % VT_DEBUG_EVENT_LIST_MAX_LEN;
+		for (int i = 0; i < debug_event_list.size && i < 6; i++) {
+			int index = (start + i) % VT_DEBUG_EVENT_LIST_MAX_LEN;
+
+			ULONG64 rip = debug_event_list.vt_debug_events[index].GuestRip;
+			ULONG64 fd6 = debug_event_list.vt_debug_events[index].fakeDr[6];
+			int handled = debug_event_list.vt_debug_events[index].isHandled;
+			sprintf(temp, "%d > %d >  h:%d 0x%llx dr6=0x%llx\n", i, index, handled, rip, fd6);
+			strcat(result, temp);
+		}
+		sendstring(result);
+	}
+
+}
+void handleVtDebugEventFirstElement(int isHandled) {
+	int cpu_id = getAPICID();
+	inner_csEnter(&vt_debug, cpu_id);
+	int start = ((debug_event_list.current_pointer + 1 + VT_DEBUG_EVENT_LIST_MAX_LEN) - (int)debug_event_list.size) % VT_DEBUG_EVENT_LIST_MAX_LEN;
+	PVT_DEBUG_EVENT debug_event = &debug_event_list.vt_debug_events[start];
+	debug_event->isHandled = isHandled;
+	printDebugEvent(debug_event_list);
+	inner_csLeave(&vt_debug, cpu_id);
+
+}
+void peekVtDebugEventElement(PVT_DEBUG_EVENT d_event) {
+	int cpu_id = getAPICID();
+	inner_csEnter(&vt_debug, cpu_id);
+	int start = ((debug_event_list.current_pointer + 1 + VT_DEBUG_EVENT_LIST_MAX_LEN) - (int)debug_event_list.size) % VT_DEBUG_EVENT_LIST_MAX_LEN;
+	PVT_DEBUG_EVENT debug_event = &debug_event_list.vt_debug_events[start];
+
+	for (int i = 0; i < 8; i++) {
+		d_event->fakeDr[i] = debug_event->fakeDr[i];
+	}
+	d_event->GuestRip = debug_event->GuestRip;
+	d_event->isHandled = debug_event->isHandled;
+	d_event->dwThreadId = debug_event->dwThreadId;
+	d_event->causeByDbvm = debug_event->causeByDbvm;
+	inner_csLeave(&vt_debug, cpu_id);
+}
+void popVtDebugEventElement() {
+	int cpu_id = getAPICID();
+	inner_csEnter(&vt_debug, cpu_id);
+	int start = ((debug_event_list.current_pointer + 1 + VT_DEBUG_EVENT_LIST_MAX_LEN) - (int)debug_event_list.size) % VT_DEBUG_EVENT_LIST_MAX_LEN;
+	PVT_DEBUG_EVENT debug_event = &debug_event_list.vt_debug_events[start];
+	for (int i = 0; i < 8; i++) {
+		debug_event->fakeDr[i] = 0;
+	}
+	debug_event->GuestRip = 0;
+	debug_event->isHandled = 0;
+	debug_event->dwThreadId = 0;
+	if (debug_event_list.size >= 1)
+		debug_event_list.size -= 1;
+
+	inner_csLeave(&vt_debug, cpu_id);
+}
+BOOLEAN AreStringsEqual(UNICODE_STRING* moduleName, PCWSTR SourceString)
+{
+	UNICODE_STRING sourceUnicodeString;
+
+	// 初始化 UNICODE_STRING 结构
+	RtlInitUnicodeString(&sourceUnicodeString, SourceString);
+
+	// 比较两个 UNICODE_STRING（不区分大小写）
+	return RtlEqualUnicodeString(moduleName, &sourceUnicodeString, TRUE);
+}
+ULONG_PTR ForceFindJumpCode(UINT_PTR processid, ULONG_PTR begin_addr,ULONG SizeOfImage) {
+
+	if (!begin_addr)return 0;
+	ULONG_PTR offset_addr = 0;
+	NTSTATUS ntStatus;
+	PEPROCESS ep = NULL;
+	UCHAR prechar = 0x00;
+	UCHAR nowchar = 0x00;
+	sendstringf("Over Module Base begin_addr:0x%llx\n", begin_addr);
+	if (PsLookupProcessByProcessId((PVOID)(UINT_PTR)(processid), &ep) == STATUS_SUCCESS)
+	{
+		while (offset_addr < SizeOfImage) {
+		
+			__try
+			{
+
+				UCHAR buffer[1024] = { 0 };
+				if (ReadProcessMemory((DWORD)processid, ep, (PVOID)(offset_addr+begin_addr), 1024, buffer)) {
+					for (int i = 0; i < 1024; i++) {
+						nowchar = buffer[i] & 0xFF;
+						if (prechar == (UCHAR)0xEB && nowchar == (UCHAR)0xFE) {//0xEB 0xFE jmp 到自己
+							sendstringf("Good We find at: 0x%llx\n", begin_addr + offset_addr + i - 1);
+							return begin_addr + offset_addr + i - 1;
+						}
+						else {
+							prechar = nowchar;
+							
+						}
+							
+					}
+						
+				}
+				else {
+					sendstringf("Failt To Touch at: 0x%llx\n", offset_addr + begin_addr);
+					break;
+				}
+				
+			}
+			__except (1)
+			{
+				sendstringf("[ERROR]UnKown Error at: 0x%llx\n", offset_addr + begin_addr);
+				ntStatus = STATUS_UNSUCCESSFUL;
+				prechar = 0x00;
+				nowchar = 0x00;
+			};
+			offset_addr += 1024;
+		}
+		ObDereferenceObject(ep);
+	}
+	return 0;
+	
+
+
+}
+void EnumerateProcessModulesGetModule(UINT_PTR processid, PCWSTR aimModule,PULONG_PTR addr,PULONG size) {
+	PEPROCESS ep = NULL;
+	*addr = 0;
+	*size = 0;
+	PPEB_LDR_DATA ldr = NULL;
+	if (PsLookupProcessByProcessId((PVOID)(UINT_PTR)(processid), &ep) == STATUS_SUCCESS)
+	{
+		KAPC_STATE oldstate;
+		//DbgPrint("IOCTL_CE_GET_PEB");
+		KeStackAttachProcess((PKPROCESS)ep, &oldstate);
+		__try
+		{
+			ULONG r;
+			PROCESS_BASIC_INFORMATION pbi;
+			//DbgPrint("Calling ZwQueryInformationProcess");
+			NTSTATUS ntStatus = ZwQueryInformationProcess(ZwCurrentProcess(), ProcessBasicInformation, &pbi, sizeof(pbi), &r);
+			if (ntStatus == STATUS_SUCCESS)
+			{
+				//DbgPrint("pbi.UniqueProcessId=%x\n", (int)pbi.UniqueProcessId);
+				//DbgPrint("pbi.PebBaseAddress=%p\n", (PVOID)pbi.PebBaseAddress);		
+				P_MY_PEB peb = (P_MY_PEB)pbi.PebBaseAddress;
+
+				ldr = peb->Ldr;
+			}
+			
+		}
+		__finally
+		{
+			KeUnstackDetachProcess(&oldstate);
+			ObDereferenceObject(ep);
+		}
+
+		if (ldr) {
+			LIST_ENTRY* listHead = &ldr->InLoadOrderModuleList;
+			LIST_ENTRY* listEntry = listHead->Flink;
+
+			while (listEntry != listHead) {
+				PLDR_DATA_TABLE_ENTRY entry = CONTAINING_RECORD(listEntry, LDR_DATA_TABLE_ENTRY, InLoadOrderLinks);
+
+
+				UNICODE_STRING* moduleName = &entry->BaseDllName;
+				if (moduleName->Buffer && moduleName->Length > 0) {
+					// Ensure the string is null-terminated before printing
+					WCHAR safeNameBuffer[256] = { 0 };
+					USHORT safeNameLength = min(moduleName->Length, sizeof(safeNameBuffer) - sizeof(WCHAR));
+
+					RtlCopyMemory(safeNameBuffer, moduleName->Buffer, safeNameLength);
+
+					// Print the module name
+					//MyKdPrint("Module Name WCHAR: %S\n", safeNameBuffer);
+					sendstringf("Module Name: %wZ\n", moduleName);
+					if (AreStringsEqual(moduleName, aimModule)) {
+						// Example: Printing the base address of each module
+						ULONG_PTR res = (ULONG_PTR)entry->DllBase;
+						ULONG resSize = (ULONG)entry->SizeOfImage;
+						*addr = res;
+						*size = resSize;
+						sendstringf("Module Base Address1: 0x%llx\n", res);
+
+						sendstringf("Module Base Address2: 0x%llx\n", res);
+						return;
+					}
+
+
+				}
+				else {
+					sendstringf("Module Name: (unknown)\n");
+				}
+				listEntry = listEntry->Flink;
+			}
+		
+		}
+		else
+			sendstringf("ZwQueryInformationProcess failed");
+	}
+	return;
+
+
+}
 
 
 void debugger_dr7_setGD(int state)
@@ -199,9 +448,8 @@ void debugger_initialize(void)
 	KeInitializeEvent(&debugger_event_WaitForContinue, SynchronizationEvent, FALSE);	
 	KeInitializeEvent(&debugger_event_CanBreak, SynchronizationEvent, TRUE); //true so the first can enter
 	KeInitializeEvent(&debugger_event_WaitForDebugEvent, SynchronizationEvent, FALSE);
-
+	KeInitializeSpinLock(&lock);
 	//DbgPrint("DebuggerState.fxstate=%p\n",DebuggerState.fxstate);
-
 
 
 	StackCount = getCpuCount() * 4;
@@ -422,14 +670,23 @@ int debugger_startDebugging(DWORD debuggedProcessID)
 Call this AFTER the interrupts are hooked
 */
 {
+
+	sendstring("debugger_startDebugging\n");
+	ULONG_PTR adrr;
+	ULONG size;
+	EnumerateProcessModulesGetModule(debuggedProcessID, L"ntdll.dll",&adrr,&size);
+
+	intJmpJmprip = ForceFindJumpCode(debuggedProcessID, adrr,size);
+	
 	//DbgPrint("debugger_startDebugging. Processid=%x\n",debuggedProcessID);
 	Int1JumpBackLocation.eip=inthook_getOriginalEIP(1);
 	Int1JumpBackLocation.cs=inthook_getOriginalCS(1);
 
+
 #ifdef AMD64
 	//DbgPrint("Int1 jump back = %x:%llx\n", Int1JumpBackLocation.cs, Int1JumpBackLocation.eip);
 #endif
-
+	
 	DebuggerState.isDebugging=TRUE;
 	DebuggerState.debuggedProcessID=debuggedProcessID;
 
@@ -497,17 +754,78 @@ NTSTATUS debugger_waitForDebugEvent(ULONG timeout)
 	//-10000000LL=1 second
 	//-10000LL should be 1 millisecond
 	//-10000LL
-	wait.QuadPart=-10000LL * timeout;
+	wait.QuadPart = -10000LL * 5;
+	int has_error = 0;
+	//这里为了追求调试速度，没有给CE反应时间，所以有概率让CE反应不过来从而崩溃，目前也没有太好的解决办法只能先这样了。
+			//我也不确定一定是因为反应不过来，总之这种写法有概率造成R3程序崩溃，这是正常现象，不是反调试。
+	int cpu_id = getAPICID();
+	inner_csEnter(&guset_use_event, cpu_id);
+	while (VtDebugEventElementHasElement()) {//异常链中存在事件
+		VT_DEBUG_EVENT top_event = { 0 };
+		peekVtDebugEventElement(&top_event);
+		if (isValidVtDebugEvent(&top_event)) {//判断事件是否有效
+			for (int i = 0; i < 8; i++) {
+				now_g_event.fakeDr[i] = top_event.fakeDr[i];
+			}
+			now_g_event.GuestRip = top_event.GuestRip;
+			now_g_event.dwThreadId = top_event.dwThreadId;
+			now_g_event.causeByDbvm = top_event.causeByDbvm;
+			now_g_event.isHandled = top_event.isHandled;
+			has_error = 1;
+			break;//R0驱动同一时间只能处理一个异常，因此发送一个后就退出
+		}
+		else {
+			//经过实测这里不需要重新定向GuestRip，CE调试器自己会重定向
+			//__vmx_vmwrite(GUEST_RIP, pre_debug_event.GuestRip);
+			popVtDebugEventElement();//对于无效的异常事件，进行摘链处理
+		}
+	}
+	inner_csLeave(&guset_use_event, cpu_id);
+	//if (has_error) return;
+	//else sendstring("[Very Big Fault] have no error but stuck in ntdll int3");			
+	if (has_error) {
+		if (0) {
+			//DBKSuspendThread(now_g_event.dwThreadId);
+			CONTEXT context;
+			RtlZeroMemory(&context, sizeof(CONTEXT));
+			context.ContextFlags = CONTEXT_FULL | CONTEXT_ALL; // 根据所需的上下文信息设置合适的标志
+			PETHREAD spThread;
+			PEPROCESS ep = NULL;
+			KAPC_STATE oldstate;
 
-	if (timeout==0xffffffff) //infinite wait
-	  r=KeWaitForSingleObject(&debugger_event_WaitForDebugEvent, UserRequest, KernelMode, TRUE, NULL);
-	else
-	  r=KeWaitForSingleObject(&debugger_event_WaitForDebugEvent, UserRequest, KernelMode, TRUE, &wait);
+			r = PsLookupProcessByProcessId((PVOID)(UINT_PTR)(DebuggerState.debuggedProcessID), &ep);//切换线程上下文
+			ObDereferenceObject(ep);
+			if (r != STATUS_SUCCESS)
+			{
+				sendstringf("[ERROR]  PsLookupProcessByProcessId:0x%llx\n", r);
+				return r;
+			}
+			KeStackAttachProcess((PKPROCESS)ep, &oldstate);
+			r = PsLookupThreadByThreadId((HANDLE)(UINT_PTR)now_g_event.dwThreadId, &spThread);
+			ObDereferenceObject(spThread);
+			KeUnstackDetachProcess(&oldstate);
 
-	if (r==STATUS_SUCCESS)
-		return r;
-	else
-		return STATUS_UNSUCCESSFUL;	
+			if (r != STATUS_SUCCESS) {
+				sendstringf("[ERROR]  PsLookupThreadByThreadId:0x%llx\n", r);
+				return r;
+			}
+		}
+		
+	
+		sendstringf("[THREAD ID 0x%x]debugger_waitForDebugEvent:0x%llx\n", now_g_event.dwThreadId, 0x1);
+		return STATUS_SUCCESS;
+	}
+	else {
+		if (timeout == 0xffffffff) //infinite wait
+			r = KeWaitForSingleObject(&debugger_event_WaitForDebugEvent, UserRequest, KernelMode, TRUE, NULL);
+		else
+			r = KeWaitForSingleObject(&debugger_event_WaitForDebugEvent, UserRequest, KernelMode, TRUE, &wait);
+		return STATUS_UNSUCCESSFUL;
+
+	}
+
+
+		
 }
 
 NTSTATUS debugger_continueDebugEvent(BOOL handled)
@@ -516,9 +834,13 @@ Only call this by one thread only, and only when there's actually a debug eevnt 
 */
 {
 	//DbgPrint("debugger_continueDebugEvent\n");
-	
+	//KeSetEvent(&debugger_event_WaitForContinue, 0,FALSE);
+	handleVtDebugEventFirstElement(1);
 	DebuggerState.handledlastevent=handled;
-	KeSetEvent(&debugger_event_WaitForContinue, 0,FALSE);
+	if (!handled)sendstringf("[ERROR] debugger_continueDebugEvent UNHANDLE");
+	//DBKResumeThread(now_g_event.dwThreadId);
+	RtlZeroMemory(&now_g_event, sizeof(VT_DEBUG_EVENT));
+	
 
 	return STATUS_SUCCESS;
 }
@@ -532,356 +854,144 @@ UINT_PTR *debugger_getLastStackPointer(void)
 
 NTSTATUS debugger_getDebuggerState(PDebugStackState state)
 {
-	//DbgPrint("debugger_getDebuggerState\n");
-	state->threadid=(UINT64)DebuggerState.LastThreadID;
-	state->causedbydbvm = (UINT64)DebuggerState.CausedByDBVM;
-	if (DebuggerState.LastStackPointer)
-	{
-		state->rflags=(UINT_PTR)DebuggerState.LastStackPointer[si_eflags];
-		state->rax=DebuggerState.LastStackPointer[si_eax];
-		state->rbx=DebuggerState.LastStackPointer[si_ebx];
-		state->rcx=DebuggerState.LastStackPointer[si_ecx];
-		state->rdx=DebuggerState.LastStackPointer[si_edx];
-		state->rsi=DebuggerState.LastStackPointer[si_esi];
-		state->rdi=DebuggerState.LastStackPointer[si_edi];
-		state->rbp=DebuggerState.LastStackPointer[si_ebp];
-
-		
-
-	#ifdef AMD64
-		//fill in the extra registers
-		state->r8=DebuggerState.LastStackPointer[si_r8];
-		state->r9=DebuggerState.LastStackPointer[si_r9];
-		state->r10=DebuggerState.LastStackPointer[si_r10];
-		state->r11=DebuggerState.LastStackPointer[si_r11];
-		state->r12=DebuggerState.LastStackPointer[si_r12];
-		state->r13=DebuggerState.LastStackPointer[si_r13];
-		state->r14=DebuggerState.LastStackPointer[si_r14];
-		state->r15=DebuggerState.LastStackPointer[si_r15];	
-		memcpy(state->fxstate, (void *)&DebuggerState.LastStackPointer[si_xmm], 512);
-	#endif		
-		
-		
-
-
-		//generally speaking, NOTHING should touch the esp register, but i'll provide it anyhow
-		if ((DebuggerState.LastStackPointer[si_cs] & 3) == 3) //if usermode code segment
-		{
-			//priv level change, so the stack info was pushed as well
-			state->rsp=DebuggerState.LastStackPointer[si_esp]; 
-			state->ss=DebuggerState.LastStackPointer[si_ss];
-		}
-		else
-		{
-			//kernelmode stack, yeah, it's really useless here since changing it here only means certain doom, but hey...
-			state->rsp=(UINT_PTR)(DebuggerState.LastStackPointer)-4;
-			state->ss=getSS();; //unchangeble by the user
-		}
-
-		
-		state->rip=DebuggerState.LastStackPointer[si_eip];
-		state->cs=DebuggerState.LastStackPointer[si_cs];
-		state->ds=DebuggerState.LastStackPointer[si_ds];
-		state->es=DebuggerState.LastStackPointer[si_es];
-	#ifdef AMD64
-		state->fs=0;
-		state->gs=0;
-	#else
-		state->fs=DebuggerState.LastStackPointer[si_fs];
-		state->gs=DebuggerState.LastStackPointer[si_gs];
-	#endif
-
-		state->dr0=DebuggerState.LastRealDebugRegisters[0];
-		state->dr1=DebuggerState.LastRealDebugRegisters[1];
-		state->dr2=DebuggerState.LastRealDebugRegisters[2];
-		state->dr3=DebuggerState.LastRealDebugRegisters[3];
-		state->dr6=DebuggerState.LastRealDebugRegisters[4];
-		state->dr7=DebuggerState.LastRealDebugRegisters[5];
-
-		 /*if (DebuggerState.storeLBR)
-		{
-			//DbgPrint("Copying the LBR stack to usermode\n");
-			//DbgPrint("storeLBR_max=%d\n", DebuggerState.storeLBR_max);
-
-		
-			for (state->LBR_Count=0; state->LBR_Count<DebuggerState.storeLBR_max; state->LBR_Count++ )
-			{
-				//DbgPrint("DebuggerState.LastLBRStack[%d]=%x\n", state->LBR_Count, DebuggerState.LastLBRStack[state->LBR_Count]);
-				state->LBR[state->LBR_Count]=DebuggerState.LastLBRStack[state->LBR_Count];
-				if (state->LBR[state->LBR_Count]==0) //no need to copy once a 0 has been reached
-					break;				
-			}
-		}
-		else*/
-			state->LBR_Count=0;
-
-
-		return STATUS_SUCCESS;
-	}
-	else
-	{
-		//DbgPrint("debugger_getDebuggerState was called while DebuggerState.LastStackPointer was still NULL");
+	
+	sendstringf("debugger_getDebuggerState\n");
+	if (state->rip != 0 && state->threadid != 0 && state->threadid != now_g_event.dwThreadId) {
+		sendstringf("[ERROR]get thread id is wrong\n");
 		return STATUS_UNSUCCESSFUL;
 	}
+	state->threadid = (UINT64)now_g_event.dwThreadId;
+	state->causedbydbvm = (UINT64)now_g_event.causeByDbvm;
+	UINT_PTR originaldr6 = now_g_event.fakeDr[6];
+	DebugReg6 _dr6 = *(DebugReg6*)&originaldr6;
+	if (state->rip == intJmpJmprip) {
+		state->rip = now_g_event.GuestRip;
+		sendstringf("[INFO][THREAD][%x] call from getcontext Dr6=0x%llx 0x%llx --> 0x%llx\n", state->threadid, now_g_event.fakeDr[6], state->rip, now_g_event.GuestRip);
+	}
+	
+	else if (state->rip == 0) {
+		sendstringf("[WARN][THREAD][%x] Dr6=0x%llx guess call from wait for debug event 0x%llx --> 0x%llx\n", state->threadid, now_g_event.fakeDr[6], state->rip, now_g_event.GuestRip);
+		state->rip = now_g_event.GuestRip;//这个不是来自GetContext调用要返回DebugEvent信息
+	}
+	else if (_dr6.BS) {
+		sendstringf("[WARN][THREAD][%x] Dr6=0x%llx is one step debug so change rip whatever 0x%llx --> 0x%llx\n", state->threadid, now_g_event.fakeDr[6], state->rip, now_g_event.GuestRip);
+		state->rip = now_g_event.GuestRip;//这个是单步异常所以无论如何都按error rip 来调试
+	}
+	else if (state->rip != now_g_event.GuestRip)sendstringf("[ERROR][THREAD][%x]  Dr6=0x%llx fail to build fake rip 0x%llx --> 0x%llx\n",  state->threadid, now_g_event.fakeDr[6], state->rip, now_g_event.GuestRip);
+
+	state->dr6 = now_g_event.fakeDr[6]; //用自己模拟的DR6替换原始值
+	state->dr7 = now_g_event.fakeDr[7]; //用自己模拟的DR6替换原始值
+	state->dr0 = now_g_event.fakeDr[0]; //用自己模拟的DR6替换原始值
+	state->dr1 = now_g_event.fakeDr[1]; //用自己模拟的DR6
+	state->dr2 = now_g_event.fakeDr[2]; //用自己模拟的DR6替换原始值
+	state->dr3 = now_g_event.fakeDr[3]; //用自己模拟的DR6替换原始值
+	
+	state->LBR_Count = 0;
+
+	return STATUS_SUCCESS;
+
 }
 
 NTSTATUS debugger_setDebuggerState(PDebugStackState state)
 {
-	if (DebuggerState.LastStackPointer)
-	{
-		DebuggerState.LastStackPointer[si_eflags]=(UINT_PTR)state->rflags;
-
-		//DbgPrint("have set eflags to %x\n",DebuggerState.LastStackPointer[si_eflags]);
-
-
-		DebuggerState.LastStackPointer[si_eax]=(UINT_PTR)state->rax;
-		DebuggerState.LastStackPointer[si_ebx]=(UINT_PTR)state->rbx;
-		DebuggerState.LastStackPointer[si_ecx]=(UINT_PTR)state->rcx;
-		DebuggerState.LastStackPointer[si_edx]=(UINT_PTR)state->rdx;
-		
-		DebuggerState.LastStackPointer[si_esi]=(UINT_PTR)state->rsi;
-		DebuggerState.LastStackPointer[si_edi]=(UINT_PTR)state->rdi;
-		
-		DebuggerState.LastStackPointer[si_ebp]=(UINT_PTR)state->rbp;
-
-		//generally speaking, NOTHING should touch the esp register, but i'll provide it anyhow
-		if ((DebuggerState.LastStackPointer[si_cs] & 3) == 3) //if usermode code segment
-		{
-			//priv level change, so the stack info was pushed as well
-			DebuggerState.LastStackPointer[si_esp]=(UINT_PTR)state->rsp;
-			//don't mess with ss
-		}
-		else
-		{
-			//no change in kernelmode allowed		
-		}
-
-		
-		DebuggerState.LastStackPointer[si_eip]=(UINT_PTR)state->rip;
-		DebuggerState.LastStackPointer[si_cs]=(UINT_PTR)state->cs;
-		DebuggerState.LastStackPointer[si_ds]=(UINT_PTR)state->ds;
-		DebuggerState.LastStackPointer[si_es]=(UINT_PTR)state->es;
-	#ifndef AMD64
-		DebuggerState.LastStackPointer[si_fs]=(UINT_PTR)state->fs;
-		DebuggerState.LastStackPointer[si_gs]=(UINT_PTR)state->gs;
-	#else //don't touch fs or gs in 64-bit
-		DebuggerState.LastStackPointer[si_r8]=(UINT_PTR)state->r8;
-		DebuggerState.LastStackPointer[si_r9]=(UINT_PTR)state->r9;
-		DebuggerState.LastStackPointer[si_r10]=(UINT_PTR)state->r10;
-		DebuggerState.LastStackPointer[si_r11]=(UINT_PTR)state->r11;
-		DebuggerState.LastStackPointer[si_r12]=(UINT_PTR)state->r12;
-		DebuggerState.LastStackPointer[si_r13]=(UINT_PTR)state->r13;
-		DebuggerState.LastStackPointer[si_r14]=(UINT_PTR)state->r14;
-		DebuggerState.LastStackPointer[si_r15]=(UINT_PTR)state->r15;
-		memcpy((void *)&DebuggerState.LastStackPointer[si_xmm], state->fxstate, 512);
-	#endif
-		
-
-
-		if (!DebuggerState.globalDebug)
-		{
-			//no idea why someone would want to use this method, but it's in (for NON globaldebug only)
-
-			//updating this array too just so the user can see it got executed. (it eases their state of mind...)
-			DebuggerState.LastRealDebugRegisters[0]=(UINT_PTR)state->dr0; 
-			DebuggerState.LastRealDebugRegisters[1]=(UINT_PTR)state->dr1;
-			DebuggerState.LastRealDebugRegisters[2]=(UINT_PTR)state->dr2;
-			DebuggerState.LastRealDebugRegisters[3]=(UINT_PTR)state->dr3;
-			DebuggerState.LastRealDebugRegisters[4]=(UINT_PTR)state->dr6;
-			DebuggerState.LastRealDebugRegisters[5]=(UINT_PTR)state->dr7;
-
-			//no setting of the DebugRegs here
-
-		}
-	}
-	else
-	{
-		//DbgPrint("debugger_setDebuggerState was called while DebuggerState.LastStackPointer was still NULL");
+	sendstringf("debugger_setDebuggerState\n");
+	if (state->threadid != now_g_event.dwThreadId) {
+		sendstringf("[ERROR]set thread id is wrong\n");
 		return STATUS_UNSUCCESSFUL;
 	}
+	// 假设threadHandle已经从某种方式获得
+	ULONG rflagMask = (1 << 16);
+	if (state->rip != now_g_event.GuestRip && state->rip != intJmpJmprip) {
+		sendstringf("[ERROR] CE do not find best rip to orgin 0x%llx => 0x%llx\n", state->rip, now_g_event.GuestRip);
+	}
+	else if (state->rip == 0) {
+		sendstringf("[WARN][THREAD][%x] guess call from continue debug event 0x%llx --> 0x%llx\n", state->threadid, state->rip, now_g_event.GuestRip);
+		state->rip = now_g_event.GuestRip;//这个不是来自SetContext调用要返回DebugEvent信息
+	}
+	else {
+		sendstringf("[INFO] ef:0x%llx context_rip:0x%llx => error_ip 0x%llx Dr6=0x%llx\n",state->rflags, state->rip, now_g_event.GuestRip, state->dr6);
+	}
 
+
+	if (now_g_event.fakeDr[6] == 0 || now_g_event.fakeDr[6] == 0x0ff0) {//如果是取消DR6的命令，则需要模拟一个RF标志位
+
+		state->rflags |= rflagMask;//模拟一个RF交给VT防止反复阻塞在同一个指令处
+
+		now_g_event.fakeDr[7] = state->dr7; //记住来自CE对于Dr6的修改
+		now_g_event.fakeDr[0] = state->dr0; //记住来自CE对于Dr6的修改
+		now_g_event.fakeDr[1] = state->dr1;//记住来自CE对于Dr6的修改
+		now_g_event.fakeDr[2] = state->dr2; //记住来自CE对于Dr6的修改
+		now_g_event.fakeDr[3] = state->dr3;//记住来自CE对于Dr6的修改
+
+	}
+	ULONG rflagValue = state->rflags & rflagMask;
+	if (rflagValue) {//模拟CE设置RF时，对于DR6产生的间接影响(造成DR6清零)
+		now_g_event.fakeDr[6] = 0;//假装清零
+	}
+
+	
 	return STATUS_SUCCESS;
+	
+
 }
 
-int breakpointHandler_kernel(UINT_PTR *stackpointer, UINT_PTR *currentdebugregs, UINT_PTR *LBR_Stack, int causedbyDBVM)
+int breakpointHandler_kernel(UINT_PTR* stackpointer, UINT_PTR* currentdebugregs, UINT_PTR* LBR_Stack, int causedbyDBVM)
 //Notice: This routine is called when interrupts are enabled and the GD bit has been set if globaL DEBUGGING HAS BEEN USED
 //Interrupts are enabled and should be at passive level, so taskswitching is possible
 {
-	NTSTATUS r=STATUS_UNSUCCESSFUL;
-	int handled=0; //0 means let the OS handle it
-	LARGE_INTEGER timeout;
-	timeout.QuadPart=-100000;
-	
-	
-	
-	//DbgPrint("breakpointHandler for kernel breakpoints\n");
 
-#ifdef AMD64
-	//DbgPrint("cs=%x ss=%x ds=%x es=%x fs=%x gs=%x\n",getCS(), getSS(), getDS(), getES(), getFS(), getGS());
 
-	//DbgPrint("fsbase=%llx gsbase=%llx gskernel=%llx\n", readMSR(0xc0000100), readMSR(0xc0000101), readMSR(0xc0000102));
 
-	//DbgPrint("rbp=%llx\n", getRBP());
-
-	//DbgPrint("gs:188=%llx\n", __readgsqword(0x188));
-	//DbgPrint("causedbyDBVM=%d\n", causedbyDBVM);
-#endif
-	
-	if (KeGetCurrentIrql()==0)
+	if ((stackpointer[si_cs] & 3) == 0)
 	{
-		//crititical section here
-		if ((stackpointer[si_cs] & 3)==0)
-		{
-			//DbgPrint("Going to wait in a kernelmode routine\n");
-		}
-
-	
-		//block other threads from breaking until this one has been handled
-		while (r != STATUS_SUCCESS)
-		{
-			r=KeWaitForSingleObject(&debugger_event_CanBreak,Executive, KernelMode, FALSE, NULL);
-			//check r and handle specific events
-
-			//DbgPrint("Woke up. r=%x\n",r);
-				
-		}
-
-		if ((stackpointer[si_cs] & 3)==0)
-		{
-			//DbgPrint("Woke up in a kernelmode routine\n");
-		}
-		
-
-		//We're here, let's notify the usermode debugger of our situation
-		//first store the stackpointer so it can be manipulated externally
-		DebuggerState.LastStackPointer=stackpointer;
-		DebuggerState.LastRealDebugRegisters=currentdebugregs;		
-		/*DebuggerState.LastLBRStack=LBR_Stack;*/
-		DebuggerState.LastThreadID=PsGetCurrentThreadId();
-		DebuggerState.CausedByDBVM = causedbyDBVM;
-		
-
-
- 
-
-
-		//notify usermode app that this thread has halted due to a debug event
-		
-		KeSetEvent(&debugger_event_WaitForDebugEvent,0,FALSE);
-
-
-		//wait for event from usermode that debgu event has been handled
-		//KeWaitForSingleObject();
-		//continue with state
-
-		while (1)
-		{
-
-
-			//LARGE_INTEGER wt;
-			NTSTATUS s=STATUS_UNSUCCESSFUL;
-			
-			//wt.QuadPart=-10000000LL; 
-			//s=KeDelayExecutionThread(KernelMode, FALSE, &wt);
-
-			//DbgPrint("Waiting...\n");
-
-
-			while (s != STATUS_SUCCESS)
-			{
-				s=KeWaitForSingleObject(&debugger_event_WaitForContinue, Executive, KernelMode, FALSE, NULL);
-				//DbgPrint("KeWaitForSingleObject=%x\n",s);		
-			}
-
-			
-
-			if (s==STATUS_SUCCESS)
-			{
-				if (DebuggerState.handledlastevent)
-				{
-					//DbgPrint("handledlastevent=TRUE");
-					handled=1;
-				}
-				else
-					handled=0;
-
-				break;
-			}
-				
-		}
-
-
-		DebuggerState.LastStackPointer=NULL; //NULL the stackpointer so routines know it should not be called
-
-		//i'm done, let other threads catch it
-		KeSetEvent(&debugger_event_CanBreak, 0, FALSE);
-
-		//DbgPrint("Returning after a wait. handled=%d and eflags=%x\n",handled, stackpointer[si_eflags]);
-		if ((stackpointer[si_cs] & 3)==0) //check rpl of cs
-		{
-			//DbgPrint("and in kernelmode\n");
-		}
-
-		return handled;
+		//DbgPrint("Going to wait in a kernelmode routine\n");
 	}
-	else
-	{
-		//DbgPrint("Breakpoint wasn't at passive level. Screw this, i'm not going to break here\n");
-		
-		return 1;
-	}
+
+	DebuggerState.LastStackPointer = stackpointer;
+	DebuggerState.LastRealDebugRegisters = currentdebugregs;
+	VT_DEBUG_EVENT debug_event;
+	debug_event.GuestRip = stackpointer[si_eip];
+	debug_event.dwThreadId = (ULONG64)PsGetCurrentThreadId();
+	debug_event.causeByDbvm = causedbyDBVM;
+	debug_event.fakeDr[7] = currentdebugregs[5];//使用旧的DR6传递错误原因
+	debug_event.fakeDr[6] = currentdebugregs[4];//使用旧的DR6传递错误原因
+	debug_event.fakeDr[0] = currentdebugregs[0];//使用旧的DR6
+	debug_event.fakeDr[1] = currentdebugregs[1];//使用旧的DR6传递错误原因
+	debug_event.fakeDr[2] = currentdebugregs[2];//使用旧的DR6传递错误原因
+	debug_event.fakeDr[3] = currentdebugregs[3];//使用旧的DR6传递错误原因
+	debug_event.isHandled = 0;
+	sendstringf("breakpointHandler_kernel add event dr6=0x%llx\n", currentdebugregs[4]);
+	int cpu_id = getAPICID();
+	inner_csEnter(&guset_use_event, cpu_id);
+	appendVtDebugEventElement(&debug_event);//在异常链表中注册当前异常事件
+	inner_csLeave(&guset_use_event, cpu_id);
+	if (intJmpJmprip)
+		stackpointer[si_eip] = intJmpJmprip;
+	else return 0;//找不到合适的jmp code直接交给Windows处理
+	return 1;
+
 
 }
 
+
 int interrupt1_handler(UINT_PTR *stackpointer, UINT_PTR *currentdebugregs)
 {
+
 	HANDLE CurrentProcessID=PsGetCurrentProcessId();	
+
 	UINT_PTR originaldr6=currentdebugregs[4];
 	DebugReg6 _dr6=*(DebugReg6 *)&currentdebugregs[4];
 
 	UINT_PTR LBR_Stack[16]; //max 16
-//	DebugReg7 _dr7=*(DebugReg7 *)&currentdebugregs[5];
+
 
 	int causedbyDBVM = vmxusable && vmx_causedCurrentDebugBreak();
 
-	/*
-	if (cpu_familyID==0x6)
-	{
-		if (DebuggerState.storeLBR)
-		{
-			//fetch the lbr stack
-			int MSR_LASTBRANCH_TOS=0x1c9;
-			int MSR_LASTBRANCH_0=0x40;
 
-			int i;
-			int count;
 
-			
-
-			i=(int)__readmsr(MSR_LASTBRANCH_TOS);
-			count=0;
-			while (count<DebuggerState.storeLBR_max)
-			{
-				UINT64 x;
-				x=__readmsr(MSR_LASTBRANCH_0+i);
-				LBR_Stack[count]=(UINT_PTR)x;
-				__writemsr(MSR_LASTBRANCH_0+i,0); //it has been read out, so can be erased now
-
-				count++;
-				i++;
-				i=i % DebuggerState.storeLBR_max;				
-			}
-		}
-	}
-	*/
-	
-
-	//DbgPrint("interrupt1_handler(%p). DR6=%x (%x) DR7=%x %x:%p\n", interrupt1_handler, originaldr6, debugger_dr6_getValueDword(), debugger_dr7_getValueDword(), stackpointer[si_cs], (void*)(stackpointer[si_eip]));
-	
-	//check if this break should be handled or not
-	
 	if (DebuggerState.globalDebug)
 	{
+		sendstring("[ERROR] we are in global\n");
 		//DbgPrint("DebuggerState.globalDebug=TRUE\n");
 		//global debugging is being used
 		if (_dr6.BD)
@@ -1238,11 +1348,73 @@ int interrupt1_handler(UINT_PTR *stackpointer, UINT_PTR *currentdebugregs)
 		}
 	}
 
+	if (CurrentProcessID == (HANDLE)(UINT_PTR)DebuggerState.debuggedProcessID)//加入白名单防止调试陷阱
+	{
+		//DbgPrint("DebuggerState.isDebugging\n");
+		//check if this should break
+		ULONG_PTR isReadOrWrite = 0; //判断断点是否为执行断点
+		ULONG_PTR ref_dr = 0;//当区使用的DR寄存器的值
+		DebugReg6 myDr6 = debugger_dr6_getValue();
+		DebugReg7 myDr7 = debugger_dr7_getValue();
+		BOOL my_should_break = 0;//加入白名单防止调试陷阱
+		int showWitchDr = 0;
+		if (myDr6.B0) {
+			isReadOrWrite = myDr7.RW0;
+			showWitchDr = 0;
+			ref_dr = debugger_dr0_getValue();
+		}
+		else if (myDr6.B1) {
+			isReadOrWrite = myDr7.RW1;
+			showWitchDr = 1;
+			ref_dr = debugger_dr1_getValue();
+		}
+		else if (myDr6.B2) {
+			isReadOrWrite = myDr7.RW2;
+			showWitchDr = 2;
+			ref_dr = debugger_dr2_getValue();
 
+		}
+		else if (myDr6.B3) {
+			isReadOrWrite = myDr7.RW3;
+			showWitchDr = 3;
+			ref_dr = debugger_dr3_getValue();
+
+		}
+		if (myDr6.BS) { //如果是单步异常则不忽略
+			my_should_break = 1;
+			if (stackpointer[si_eip] == intJmpJmprip) {//单步异常的intJmp需要忽略
+				my_should_break = 0;
+			}
+		}
+		else if (isReadOrWrite) {
+
+			for (int i = 0; i < 4; i++) {
+				ULONG_PTR aim_addr = DebuggerState.breakpoint[i].address;
+				if (aim_addr - 16 < ref_dr && ref_dr < aim_addr + 16) {
+					my_should_break = 1;
+					break;
+				}
+			}
+
+		}
+		else {
+			for (int i = 0; i < 4; i++) {
+				if (DebuggerState.breakpoint[i].address == stackpointer[si_eip]) {
+					my_should_break = 1;
+					break;
+				}
+			}
+		}
+		
+		
+		sendstringf("ThreadId= 0x%x bk1=0x%llx bk2=0x%llx bk3=0x%llx bk4=0x%llx rip = 0x%llx, dr%d = 0x%llx, Dr6.BS = 0x%llx, ReadOrWrite = 0x%llx, dr6 = 0x%llx, dr7 = 0x%llx, rflags = 0x%llx, my_should_break =0x%x\r\n", \
+			PsGetCurrentThreadId(), DebuggerState.breakpoint[0].address, DebuggerState.breakpoint[1].address, DebuggerState.breakpoint[2].address, DebuggerState.breakpoint[3].address, stackpointer[si_eip], showWitchDr, currentdebugregs[showWitchDr], myDr6.BS, isReadOrWrite, debugger_dr6_getValue(), getDR7(), stackpointer[si_eflags], my_should_break);
+		if (my_should_break == 0) return 0; //Let windows handle it
+	}
 
 	if (DebuggerState.isSteppingTillClear) //this doesn't really work because when the state comes back to interruptable the system has a critical section lock on the GUI, so yeah... I really need a DBVM display driver for this
 	{
-	
+		
 		if ((((PEFLAGS)&stackpointer[si_eflags])->IF == 0) || (KeGetCurrentIrql() != PASSIVE_LEVEL))
 		{
 			((PEFLAGS)&stackpointer[si_eflags])->TF = 1;
@@ -1257,10 +1429,11 @@ int interrupt1_handler(UINT_PTR *stackpointer, UINT_PTR *currentdebugregs)
 	
 	if (DebuggerState.isDebugging)
 	{
-		//DbgPrint("DebuggerState.isDebugging\n");
-		//check if this should break
+		
+		
 		if (CurrentProcessID == (HANDLE)(UINT_PTR)DebuggerState.debuggedProcessID)
 		{
+			sendstring("CE Dbg Debug Begin\n");
 			UINT_PTR originaldebugregs[6];
 			UINT64 oldDR7 = getDR7();
 
@@ -1337,7 +1510,9 @@ int interrupt1_handler(UINT_PTR *stackpointer, UINT_PTR *currentdebugregs)
 				debugger_dr1_setValue(0);
 				debugger_dr2_setValue(0);
 				debugger_dr3_setValue(0);
-				debugger_dr6_setValue(0xffff0ff0);
+				debugger_dr6_setValue(0xffff0ff0);//清除DR6防止持续发生断点
+				((PEFLAGS)&stackpointer[si_eflags])->TF = 0; //防止持续单步
+
 			}
 
 			//start the windows taskswitching mode
@@ -1493,6 +1668,8 @@ int interrupt1_handler(UINT_PTR *stackpointer, UINT_PTR *currentdebugregs)
 
 int interrupt1_centry(UINT_PTR *stackpointer) //code segment 8 has a 32-bit stackpointer
 {
+
+
 	UINT_PTR before;//,after;
 	UINT_PTR currentdebugregs[6]; //used for determining if the current bp is caused by the debugger or not
 	int handled=0; //if 0 at return, the interupt will be passed down to the operating system

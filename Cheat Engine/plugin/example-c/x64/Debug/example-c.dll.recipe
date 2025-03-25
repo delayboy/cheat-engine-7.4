@@ -1,0 +1,15 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project>
+  <ProjectOutputs>
+    <ProjectOutput>
+      <FullPath>Z:\Computer\Program\Program_maker\CPlus\CheatEngineSourceCode\cheat-engine-7.4\Cheat Engine\bin\example-c.dll</FullPath>
+    </ProjectOutput>
+  </ProjectOutputs>
+  <ContentFiles>
+    <ContentFile>
+      <FullPath>Z:\Computer\Program\Program_maker\CPlus\CheatEngineSourceCode\cheat-engine-7.4\Cheat Engine\plugin\example-c\html1.htm</FullPath>
+    </ContentFile>
+  </ContentFiles>
+  <SatelliteDlls />
+  <NonRecipeFileRefs />
+</Project>

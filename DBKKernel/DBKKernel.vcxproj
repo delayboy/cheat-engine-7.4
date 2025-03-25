@@ -92,6 +92,7 @@
     <ConfigurationType>Driver</ConfigurationType>
     <DriverType>KMDF</DriverType>
     <DriverTargetPlatform>Desktop</DriverTargetPlatform>
+    <Driver_SpectreMitigation>false</Driver_SpectreMitigation>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'" Label="Configuration">
     <TargetVersion>Windows7</TargetVersion>
@@ -100,6 +101,7 @@
     <ConfigurationType>Driver</ConfigurationType>
     <DriverType>KMDF</DriverType>
     <DriverTargetPlatform>Desktop</DriverTargetPlatform>
+    <Driver_SpectreMitigation>false</Driver_SpectreMitigation>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release without sig|x64'" Label="Configuration">
     <TargetVersion>Windows7</TargetVersion>
@@ -108,6 +110,7 @@
     <ConfigurationType>Driver</ConfigurationType>
     <DriverType>KMDF</DriverType>
     <DriverTargetPlatform>Desktop</DriverTargetPlatform>
+    <Driver_SpectreMitigation>false</Driver_SpectreMitigation>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|ARM'" Label="Configuration">
     <TargetVersion>Windows10</TargetVersion>
@@ -187,12 +190,13 @@
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <DebuggerFlavor>DbgengKernelDebugger</DebuggerFlavor>
-    <TargetName>DBK64</TargetName>
+    <TargetName>myVT64</TargetName>
     <OutDir>..\Cheat Engine\bin\</OutDir>
     <Inf2CatUseLocalTime>false</Inf2CatUseLocalTime>
     <Inf2CatVerbose>true</Inf2CatVerbose>
     <TimeStampServer>http://timestamp.globalsign.com/?signature=sha2</TimeStampServer>
     <EnableInf2cat>false</EnableInf2cat>
+    <PostBuildEventUseInBuild>false</PostBuildEventUseInBuild>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <DebuggerFlavor>DbgengKernelDebugger</DebuggerFlavor>
@@ -200,17 +204,18 @@
     <OutDir>..\Cheat Engine\bin\</OutDir>
     <TargetName>DBK64</TargetName>
     <Inf2CatUseLocalTime>false</Inf2CatUseLocalTime>
+    <EnableInf2cat>false</EnableInf2cat>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release without sig|x64'">
     <DebuggerFlavor>DbgengKernelDebugger</DebuggerFlavor>
     <TimeStampServer>http://timestamp.globalsign.com/?signature=sha2</TimeStampServer>
     <OutDir>..\Cheat Engine\bin\</OutDir>
-    <TargetName>DBK64</TargetName>
+    <TargetName>myVT64</TargetName>
     <Inf2CatUseLocalTime>true</Inf2CatUseLocalTime>
     <EnableInf2cat>false</EnableInf2cat>
     <Inf2CatNoCatalog>true</Inf2CatNoCatalog>
     <DiagnosticMode>true</DiagnosticMode>
-    <PostBuildEventUseInBuild>true</PostBuildEventUseInBuild>
+    <PostBuildEventUseInBuild>false</PostBuildEventUseInBuild>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|ARM'">
     <DebuggerFlavor>DbgengKernelDebugger</DebuggerFlavor>
@@ -233,6 +238,7 @@
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <ClCompile>
       <PreprocessorDefinitions>%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <TreatWarningAsError>false</TreatWarningAsError>
     </ClCompile>
     <Link>
       <AdditionalDependencies>$(DDK_LIB_PATH)Ntstrsafe.lib;%(AdditionalDependencies)</AdditionalDependencies>
@@ -242,6 +248,9 @@
       <Command>"$(WDKBinRoot_x64)\signtool.exe" sign /a /ac "$(TargetDir)..\release\sig\GlobalSign Root CA.crt" /tr http://rfc3161timestamp.globalsign.com/advanced /td SHA256 "$(TargetPath)"</Command>
       <Message>sign driver</Message>
     </PostBuildEvent>
+    <DriverSign>
+      <FileDigestAlgorithm>SHA256</FileDigestAlgorithm>
+    </DriverSign>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <ClCompile>
@@ -264,6 +273,12 @@ makecab /f "$(ProjectDir)\dbk64.ddf"
     <PostBuildEvent>
       <Message>Generate and sign CAB</Message>
     </PostBuildEvent>
+    <DriverSign>
+      <FileDigestAlgorithm>SHA256</FileDigestAlgorithm>
+    </DriverSign>
+    <Inf>
+      <SpecifyArchitecture>true</SpecifyArchitecture>
+    </Inf>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release without sig|x64'">
     <ClCompile>
@@ -277,7 +292,7 @@ makecab /f "$(ProjectDir)\dbk64.ddf"
       <AdditionalOptions>/INTEGRITYCHECK %(AdditionalOptions)</AdditionalOptions>
     </Link>
     <DriverSign>
-      <FileDigestAlgorithm>sha256</FileDigestAlgorithm>
+      <FileDigestAlgorithm>SHA256</FileDigestAlgorithm>
     </DriverSign>
     <PostBuildEvent>
       <Command>"$(WDKBinRoot_x64)\signtool.exe" sign /a /ac "$(TargetDir)..\release\sig\GlobalSign Root CA.crt" /tr http://rfc3161timestamp.globalsign.com/advanced /td SHA256 "$(TargetPath)"</Command>
@@ -323,6 +338,7 @@ makecab /f "$(ProjectDir)\dbk64.ddf"
     <ClCompile Include="interruptHook.c" />
     <ClCompile Include="IOPLDispatcher.c" />
     <ClCompile Include="memscan.c" />
+    <ClCompile Include="MyUtil.c" />
     <ClCompile Include="noexceptions.c" />
     <ClCompile Include="processlist.c" />
     <ClCompile Include="sigcheck.c">
@@ -352,6 +368,7 @@ makecab /f "$(ProjectDir)\dbk64.ddf"
     <ClInclude Include="IOPLDispatcher.h" />
     <ClInclude Include="kfiles.h" />
     <ClInclude Include="memscan.h" />
+    <ClInclude Include="MyUtil.h" />
     <ClInclude Include="noexceptions.h" />
     <ClInclude Include="processlist.h" />
     <ClInclude Include="sigcheck.h" />

@@ -18,6 +18,6 @@ void DBKSuspendProcess(ULONG ProcessID);
 
 
 
-//NTSTATUS NTAPI DBKGetContextThread(IN PETHREAD Thread, IN OUT PCONTEXT ThreadContext);
-
+NTSTATUS NTAPI DBKGetContextThread(IN PETHREAD Thread, IN OUT PCONTEXT ThreadContext);
+NTSTATUS NTAPI DBKSetContextThread(IN PETHREAD Thread, IN OUT PCONTEXT ThreadContext);
 #endif

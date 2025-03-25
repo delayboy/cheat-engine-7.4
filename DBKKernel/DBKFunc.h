@@ -340,7 +340,7 @@ void setCR4(UINT64 newcr4);
 UINT64 getTSC(void);
 
 #ifdef AMD64
-
+extern WORD asmInt3(void);
 extern WORD getCS(void);
 extern WORD getSS(void);
 extern WORD getDS(void);
@@ -356,6 +356,7 @@ extern UINT64 getRDX(void);
 extern UINT64 getRSI(void);
 extern UINT64 getRDI(void);
 #else
+WORD asmInt3(void);
 WORD getCS(void);
 WORD getSS(void);
 WORD getDS(void);

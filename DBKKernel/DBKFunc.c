@@ -324,6 +324,7 @@ int isPrefix(unsigned char b)
 
 UINT64 getDR7(void)
 {
+
 	return __readdr(7);
 
 }
@@ -418,6 +419,13 @@ UINT64 getTSC(void)
 
 #ifndef AMD64
 //function declarations that can be done inline without needing an .asm file
+_declspec(naked)  WORD asmInt3(void) {
+	__asm
+	{
+		int 3
+		ret
+	}
+}
 _declspec( naked ) WORD getSS(void)
 {
 	__asm

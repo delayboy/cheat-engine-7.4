@@ -944,7 +944,6 @@ begin
   handledisassemblerplugins(@paddressString, @pbytestring, @popcodestring, @pspecialstring, @textcolor);
   fcanvas.font.color:=textcolor;
 
-
   DrawTextRectWithColor(rect(fHeaders.Items[0].Left, linestart, fHeaders.Items[0].Right, linestart+height), fHeaders.Items[0].Left+1,linestart, paddressString);
 
 //  fcanvas.TextRect(rect(fHeaders.Items[1].Left, linestart, fHeaders.Items[1].Right, linestart+height),fHeaders.Items[1].Left+1,linestart, pbytestring);
@@ -983,8 +982,13 @@ begin
 
   DrawTextRectWithColor(rect(fHeaders.Items[2].Left, linestart, fHeaders.Items[2].Right, linestart+height),i,linestart, parameterstring);
   fInstructionCenter:=linestart+(fcanvas.TextHeight(opcodestring) div 2);
-
-  if specialstrings.Count>0 then
+  //判断字符串指针地址是否与原数组相等，相等证明没有更改，则按原方案渲染
+  if @pspecialstring[1] <> @specialstring[1] then
+  begin
+    fcanvas.TextRect(rect(fHeaders.Items[3].Left, linestart, fHeaders.Items[3].Right, linestart+height),fHeaders.Items[3].Left+1,linestart, pspecialstring);
+    inc(linestart, fcanvas.GetTextHeight(pspecialstring));
+  end
+  else if specialstrings.Count>0 then
   begin
     for i:=0 to specialstrings.Count-1 do
     begin

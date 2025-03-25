@@ -3181,14 +3181,14 @@ begin
         if not fileexists(dataloc) then
         begin
 
-          servicename:='CEDRIVER73';
-          ultimapservicename:='ULTIMAP2';
-          processeventname:='DBKProcList60';
-          threadeventname:='DBKThreadList60';
+          servicename:='myVT64';  // servicename:='CEDRIVER73';
+          ultimapservicename:='MYVTUL';  //ULTIMAP2
+          processeventname:='myVT64ProcList';//DBKProcList60
+          threadeventname:='myVT64ThreadList60';  //DBKThreadList60
 
           if iswow64 then
           begin
-            sysfile:='dbk64.sys';
+            sysfile:='myVT64.sys';
             ultimapsysfile:='ultimap2-64.sys';
           end
           else

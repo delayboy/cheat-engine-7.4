@@ -44,7 +44,21 @@ typedef struct {
 	UINT64 LBR[16];
 } DebugStackState, *PDebugStackState;
 #pragma pack()
+#define VT_DEBUG_EVENT_LIST_MAX_LEN 128
+typedef struct _VT_DEBUG_EVENT {
+	ULONG64 GuestRip;//lastError
+	ULONG64 dwThreadId;
+	ULONG64 causeByDbvm;
+	ULONG64 fakeDr[8];
 
+	int isHandled;
+}VT_DEBUG_EVENT, * PVT_DEBUG_EVENT;
+
+typedef struct _VT_DEBUG_EVENT_LIST {
+	int current_pointer;
+	size_t size;
+	VT_DEBUG_EVENT vt_debug_events[VT_DEBUG_EVENT_LIST_MAX_LEN];
+}VT_DEBUG_EVENT_LIST, * PVT_DEBUG_EVENT_LIST; //VT事件循环链表
 //stack index
 
 typedef enum {bt_OnInstruction=0,bt_OnWrites=1, bt_OnIOAccess=2, bt_OnReadsAndWrites=3} BreakType;
@@ -66,7 +80,7 @@ NTSTATUS debugger_continueDebugEvent(BOOL handled);
 UINT_PTR *debugger_getLastStackPointer(void);
 NTSTATUS debugger_getDebuggerState(PDebugStackState state);
 NTSTATUS debugger_setDebuggerState(PDebugStackState state);
-
+void TouchPid(UINT_PTR processid);
 void GetDebuggerInfo(void);
 VOID debugger_initHookForCurrentCPU_DPC(IN struct _KDPC *Dpc, IN PVOID  DeferredContext, IN PVOID  SystemArgument1, IN PVOID  SystemArgument2);
 

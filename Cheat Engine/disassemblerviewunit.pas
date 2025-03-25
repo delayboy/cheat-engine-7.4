@@ -619,7 +619,7 @@ begin
   jumplineoffset:=trianglesize;
 
   found:=false;
-
+  //渲染跳转线
   for i:=0 to fTotalvisibledisassemblerlines-1 do
   begin
     currentline:=disassemblerlines[i];

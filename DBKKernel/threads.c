@@ -4,14 +4,18 @@
 #include "processlist.h"
 #include "memscan.h"
 
-/*
+
 NTSTATUS NTAPI PsGetContextThread(IN PETHREAD Thread, IN OUT PCONTEXT ThreadContext, IN KPROCESSOR_MODE PreviousMode);
 NTSTATUS NTAPI PsSetContextThread(IN PETHREAD Thread, IN OUT PCONTEXT ThreadContext, IN KPROCESSOR_MODE PreviousMode);
 
 NTSTATUS NTAPI DBKGetContextThread(IN PETHREAD Thread, IN OUT PCONTEXT ThreadContext)
 {
 	return PsGetContextThread(Thread, ThreadContext, KernelMode);
-}*/
+}
+NTSTATUS NTAPI DBKSetContextThread(IN PETHREAD Thread, IN OUT PCONTEXT ThreadContext)
+{
+	return PsSetContextThread(Thread, ThreadContext, KernelMode);
+}
 
 struct ThreadData* GetThreaddata(ULONG threadid)
 {

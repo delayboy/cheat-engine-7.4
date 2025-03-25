@@ -1926,7 +1926,7 @@ begin
 
     {$ifdef windows}
     if (CurrentDebuggerInterface is TKernelDebugInterface) or
-       (CurrentDebuggerInterface is TNetworkDebuggerInterface) then //the kerneldebuginterface and networkdebuginterface do not give a breakpoint as init so use create as attachevent
+       (CurrentDebuggerInterface is TNetworkDebuggerInterface) or (DWORD(debugEvent.CreateProcessInfo.lpBaseOfImage)=$123456) then //the kerneldebuginterface and networkdebuginterface do not give a breakpoint as init so use create as attachevent
       onAttachEvent.SetEvent;
 
     if (CurrentDebuggerInterface is TWindowsDebuggerInterface) and (debugEvent.CreateProcessInfo.hFile<>0) then
